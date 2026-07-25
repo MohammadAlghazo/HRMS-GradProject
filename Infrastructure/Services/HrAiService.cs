@@ -338,7 +338,7 @@ public class HrAiService(
 
         if (mode == Domain.Enums.AiMode.DeepThink)
         {
-            return await CallGroqWithToolsAsync(messages, mode, userRole);
+            return await CallGroqWithToolsAsync(messages, mode, userRole, employeeId);
         }
 
         return await CallGroqAsync(messages);
@@ -348,7 +348,7 @@ public class HrAiService(
     // ════════════════════════════════════════════════════════════════════════
     //  DEEP THINK & EXECUTIVE (FUNCTION CALLING)
     // ════════════════════════════════════════════════════════════════════════
-    private async Task<AiResponseDto> CallGroqWithToolsAsync(List<object> messages, Domain.Enums.AiMode mode, string userRole)
+    private async Task<AiResponseDto> CallGroqWithToolsAsync(List<object> messages, Domain.Enums.AiMode mode, string userRole, int? currentEmployeeId)
     {
         if (string.IsNullOrWhiteSpace(_cfg.ApiKey))
             throw new InvalidOperationException("GroqSettings:ApiKey is missing.");
@@ -488,6 +488,15 @@ public class HrAiService(
                         Tokens = totalTokens
                     };
                 }
+                if ((int)response.StatusCode == 400 && error.Contains("failed_generation"))
+                {
+                    return new AiResponseDto
+                    {
+                        Reply = "عذراً، ليس لدي الصلاحية للوصول إلى هذه البيانات أو تنفيذ هذا الإجراء. يرجى التأكد من صلاحياتك أو إعادة صياغة السؤال.",
+                        Model = _cfg.Model,
+                        Tokens = totalTokens
+                    };
+                }
                 throw new InvalidOperationException($"Groq API error {(int)response.StatusCode}: {error}");
             }
 
@@ -534,16 +543,24 @@ public class HrAiService(
                         else if (functionName == "GetEmployeeLeaves")
                         {
                             var empId = argsDoc.RootElement.GetProperty("employeeId").GetInt32();
+                            if (userRole == "Employee" && empId != currentEmployeeId)
+                                throw new UnauthorizedAccessException();
                             toolResult = await GetEmployeeLeavesAsync(empId);
                         }
                         else if (functionName == "GetDepartmentsOverview")
                         {
+                            if (userRole == "Employee")
+                                throw new UnauthorizedAccessException();
                             toolResult = await GetDepartmentsOverviewAsync();
                         }
                         else if (functionName == "GetAttendanceRecords")
                         {
                             int? empId = argsDoc.RootElement.TryGetProperty("employeeId", out var eProp) ? eProp.GetInt32() : null;
                             int? days = argsDoc.RootElement.TryGetProperty("days", out var dProp) ? dProp.GetInt32() : null;
+                            
+                            if (userRole == "Employee" && (empId == null || empId != currentEmployeeId))
+                                throw new UnauthorizedAccessException();
+                                
                             toolResult = await GetAttendanceRecordsAsync(empId, days);
                         }
                         else if (functionName == "GetSalaries")
@@ -551,10 +568,16 @@ public class HrAiService(
                             int? empId = argsDoc.RootElement.TryGetProperty("employeeId", out var eProp) ? eProp.GetInt32() : null;
                             int? month = argsDoc.RootElement.TryGetProperty("month", out var mProp) ? mProp.GetInt32() : null;
                             int? year = argsDoc.RootElement.TryGetProperty("year", out var yProp) ? yProp.GetInt32() : null;
+                            
+                            if (userRole == "Employee" && (empId == null || empId != currentEmployeeId))
+                                throw new UnauthorizedAccessException();
+                                
                             toolResult = await GetSalariesAsync(empId, month, year);
                         }
                         else if (functionName == "GetSystemOverview")
                         {
+                            if (userRole == "Employee")
+                                throw new UnauthorizedAccessException();
                             toolResult = await GetSystemOverviewAsync();
                         }
 
